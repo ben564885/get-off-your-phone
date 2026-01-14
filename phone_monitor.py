@@ -14,16 +14,20 @@ import requests
 load_dotenv()
 
 class PhoneDetectionMonitor:
-    def __init__(self, youtube_urls, cooldown_seconds=30):
+    def __init__(self, youtube_urls, cooldown_seconds=30, check_browser=True, check_phone=True):
         """
         Initialize the phone detection monitor.
         
         Args:
             youtube_urls: List of YouTube URLs to open when distraction is detected
             cooldown_seconds: Seconds to wait before opening URL again
+            check_browser: Whether to monitor Safari tabs
+            check_phone: Whether to use AI camera detection
         """
         self.youtube_urls = youtube_urls if isinstance(youtube_urls, list) else [youtube_urls]
         self.cooldown = cooldown_seconds
+        self.check_browser = check_browser
+        self.check_phone = check_phone
         self.last_triggered = 0
         
         # Roboflow config
@@ -35,18 +39,22 @@ class PhoneDetectionMonitor:
             print("⚠️  WARNING: ROBOFLOW_API_KEY not found in environment!")
             print("Please create a .env file with ROBOFLOW_API_KEY=your_key_here")
         
-        # Initialize camera
-        self.cap = cv2.VideoCapture(0)
-        
-        # Check if camera opened successfully
-        if not self.cap.isOpened():
-            print("⚠️  ERROR: Could not open camera!")
-            print("Make sure:")
-            print("1. Terminal has Camera permission in System Settings")
-            print("2. No other app is using the camera")
-            print("3. Try camera index 1 if 0 doesn't work")
+        if self.check_phone:
+            # Initialize camera
+            self.cap = cv2.VideoCapture(0)
+            
+            # Check if camera opened successfully
+            if not self.cap.isOpened():
+                print("⚠️  ERROR: Could not open camera!")
+                print("Make sure:")
+                print("1. Terminal has Camera permission in System Settings")
+                print("2. No other app is using the camera")
+                print("3. Try camera index 1 if 0 doesn't work")
+            else:
+                print("✓ Camera initialized successfully")
         else:
-            print("✓ Camera initialized successfully")
+            self.cap = None
+            print("📷 Camera detection disabled")
         
         # Track Instagram detection
         self.instagram_open = False
@@ -233,49 +241,59 @@ class PhoneDetectionMonitor:
     def run(self):
         """Main monitoring loop."""
         print("📷 Starting phone detection monitor...")
-        print("🔍 Monitoring for: AI Phone Detection OR Instagram.com")
+        monitoring_desc = []
+        if self.check_phone: monitoring_desc.append("AI Phone Detection")
+        if self.check_browser: monitoring_desc.append("Instagram in Safari")
+        
+        print(f"🔍 Monitoring for: {' OR '.join(monitoring_desc)}")
         print("📺 Will open YouTube video when distraction detected")
-        print("💡 TIP: Show your phone to the camera to trigger")
+        if self.check_phone:
+            print("💡 TIP: Show your phone to the camera to trigger")
         print("=" * 60)
         
-        # Check if camera is working
-        if not self.cap.isOpened():
-            print("❌ CRITICAL ERROR: Camera is not available!")
-            print("\nPlease check:")
-            print("1. System Settings → Privacy & Security → Camera")
-            print("2. Make sure Terminal has camera permission")
-            print("3. Close any other apps using the camera")
-            return
-        
-        print("✓ Camera is active")
-        print("=" * 60)
-        print("\nPress 'q' in the camera window to quit\n")
+        # Check if camera is working if phone check is enabled
+        if self.check_phone:
+            if not self.cap or not self.cap.isOpened():
+                print("❌ CRITICAL ERROR: Camera is not available!")
+                print("\nPlease check:")
+                print("1. System Settings → Privacy & Security → Camera")
+                print("2. Make sure Terminal has camera permission")
+                print("3. Close any other apps using the camera")
+                return
+            print("✓ Camera is active")
+            print("=" * 60)
+            print("\nPress 'q' in the camera window to quit\n")
+        else:
+            print("✓ Running in Browser-only mode")
+            print("=" * 60)
+            print("\nPress Ctrl+C in terminal to quit\n")
         
         check_counter = 0
         
         while True:
-            ret, frame = self.cap.read()
-            if not ret:
-                print("ERROR: Failed to read from camera")
-                break
+            frame = None
+            if self.check_phone:
+                ret, frame = self.cap.read()
+                if not ret:
+                    print("ERROR: Failed to read from camera")
+                    break
+                # Flip frame for mirror view
+                frame = cv2.flip(frame, 1)
             
-            # Flip frame for mirror view
-            frame = cv2.flip(frame, 1)
-            
-            # Detect Instagram every 30 frames (about once per second)
+            # Detect Instagram every 30 frames/iterations
             instagram_detected = False
-            # Detect Phone AI every 15 frames (about twice per second) to save API calls
+            # Detect Phone AI every 15 frames/iterations
             phone_detected = False
             phone_confidence = 0
             
             check_counter += 1
-            if check_counter % 30 == 0:
+            if self.check_browser and check_counter % 30 == 0:
                 instagram_detected = self.is_instagram_open()
                 if instagram_detected:
                     self.close_distraction_tabs()
                 print("-" * 40)
             
-            if check_counter % 15 == 0:
+            if self.check_phone and check_counter % 15 == 0:
                 phone_detected, phone_confidence = self.detect_phone_ai(frame)
                 if phone_detected:
                     print(f"✓✓✓ PHONE DETECTED! (Conf: {phone_confidence:.2f})")
@@ -283,19 +301,20 @@ class PhoneDetectionMonitor:
             if check_counter >= 30:
                 check_counter = 0
 
-            # Display detection status
-            if phone_detected:
-                cv2.putText(frame, f"📱 PHONE! ({int(phone_confidence*100)}%)", (10, 30),
-                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            # Display detection status if camera is on
+            if self.check_phone and frame is not None:
+                if phone_detected:
+                    cv2.putText(frame, f"📱 PHONE! ({int(phone_confidence*100)}%)", (10, 30),
+                               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                
+                if instagram_detected:
+                    cv2.putText(frame, "📸 Instagram open!", (10, 100),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+                    self.instagram_open = True
+                else:
+                    self.instagram_open = False
             
-            if instagram_detected:
-                cv2.putText(frame, "📸 Instagram open!", (10, 100),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
-                self.instagram_open = True
-            else:
-                self.instagram_open = False
-            
-            # Trigger YouTube video if either condition is met
+            # Trigger YouTube video
             current_time = time.time()
             time_since_last = current_time - self.last_triggered
             should_trigger_reason = ""
@@ -316,16 +335,19 @@ class PhoneDetectionMonitor:
                 else:
                     print(f"DEBUG: Trigger blocked by cooldown ({int(self.cooldown - time_since_last)}s remaining)")
             
-            # Show cooldown status on screen
-            time_until_ready = max(0, self.cooldown - (current_time - self.last_triggered))
-            if time_until_ready > 0:
-                cv2.putText(frame, f"Ready in: {int(time_until_ready)}s", (10, 70),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-            
-            cv2.imshow('Phone Detection Monitor', frame)
-            
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+            # Show cooldown status on screen if camera is active
+            if self.check_phone and frame is not None:
+                time_until_ready = max(0, self.cooldown - (current_time - self.last_triggered))
+                if time_until_ready > 0:
+                    cv2.putText(frame, f"Ready in: {int(time_until_ready)}s", (10, 70),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                
+                cv2.imshow('Phone Detection Monitor', frame)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+            else:
+                # In browser-only mode, just sleep a bit to avoid CPU hogging
+                time.sleep(0.03)
         
         self.cleanup()
     
@@ -354,9 +376,33 @@ if __name__ == "__main__":
         "https://www.youtube.com/watch?v=Itn9lI0VK0U"
     ]
     
+    print("\n" + "="*40)
+    print("      GET OFF YOUR PHONE MONITOR")
+    print("="*40)
+    print("Select monitoring mode:")
+    print("1. Browser Check Only (Safari)")
+    print("2. Phone Check Only (AI Camera)")
+    print("3. Both (Recommended)")
+    
+    choice = input("\nEnter choice (1-3) [default: 3]: ").strip()
+    
+    b_check, p_check = True, True
+    if choice == "1":
+        b_check, p_check = True, False
+    elif choice == "2":
+        b_check, p_check = False, True
+        
     monitor = PhoneDetectionMonitor(
         youtube_urls=YOUTUBE_URLS,
-        cooldown_seconds=10  # Wait 10 seconds between opening tabs
+        cooldown_seconds=10,
+        check_browser=b_check,
+        check_phone=p_check
     )
     
-    monitor.run()
+    try:
+        monitor.run()
+    except KeyboardInterrupt:
+        print("\n👋 Exiting monitor...")
+    finally:
+        if monitor.check_phone:
+            monitor.cleanup()
