@@ -1,0 +1,227 @@
+import cv2
+import numpy as np
+import time
+import mediapipe as mp
+from AppKit import NSWorkspace
+import Quartz
+import webbrowser
+
+class PhoneDetectionMonitor:
+    def __init__(self, youtube_url, cooldown_seconds=30):
+        """
+        Initialize the phone detection monitor.
+        
+        Args:
+            youtube_url: YouTube URL to open when distraction is detected
+            cooldown_seconds: Seconds to wait before opening URL again
+        """
+        self.youtube_url = youtube_url
+        self.cooldown = cooldown_seconds
+        self.last_triggered = 0
+        
+        # Initialize MediaPipe hand detection
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=2,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+        
+        # Initialize camera
+        self.cap = cv2.VideoCapture(0)
+        
+        # Track Instagram detection
+        self.instagram_open = False
+        
+    def is_phone_scrolling_gesture(self, hand_landmarks, frame_shape):
+        """
+        Detect if hand is in a phone-scrolling position.
+        Looks for vertical hand orientation with thumb movement.
+        """
+        if not hand_landmarks:
+            return False
+        
+        h, w, _ = frame_shape
+        
+        # Get key landmarks
+        wrist = hand_landmarks.landmark[0]
+        thumb_tip = hand_landmarks.landmark[4]
+        index_tip = hand_landmarks.landmark[8]
+        middle_tip = hand_landmarks.landmark[12]
+        
+        # Convert to pixel coordinates
+        wrist_y = wrist.y * h
+        index_y = index_tip.y * h
+        middle_y = middle_tip.y * h
+        
+        # Check if hand is vertical (fingers pointing up/down)
+        vertical_span = abs(wrist_y - index_y)
+        
+        # Check if fingers are close together (holding phone)
+        index_x = index_tip.x * w
+        middle_x = middle_tip.x * w
+        fingers_close = abs(index_x - middle_x) < 50
+        
+        return vertical_span > 100 and fingers_close
+    
+    def is_instagram_open(self):
+        """
+        Check if Instagram.com is open in any browser.
+        """
+        try:
+            # Get list of all running apps
+            workspace = NSWorkspace.sharedWorkspace()
+            running_apps = workspace.runningApplications()
+            
+            # Browser bundle identifiers to check
+            browsers = [
+                'com.google.Chrome',
+                'com.apple.Safari', 
+                'org.mozilla.firefox',
+                'com.microsoft.edgemac',
+                'com.brave.Browser',
+                'com.operasoftware.Opera'
+            ]
+            
+            # Check each browser
+            for app in running_apps:
+                bundle_id = app.bundleIdentifier()
+                if bundle_id in browsers:
+                    # For Chrome and other browsers, check window titles
+                    if self.check_browser_for_instagram(bundle_id):
+                        return True
+            
+            return False
+        except Exception as e:
+            print(f"Browser check error: {e}")
+            return False
+    
+    def check_browser_for_instagram(self, bundle_id):
+        """
+        Check if Instagram is open in browser by examining window titles.
+        """
+        try:
+            # Use Quartz to get window information
+            window_list = Quartz.CGWindowListCopyWindowInfo(
+                Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
+                Quartz.kCGNullWindowID
+            )
+            
+            for window in window_list:
+                # Check if window belongs to a browser
+                owner_name = window.get('kCGWindowOwnerName', '')
+                window_name = window.get('kCGWindowName', '')
+                
+                # Check if Instagram.com is in the window/tab title
+                if window_name and 'instagram.com' in window_name.lower():
+                    return True
+                if window_name and 'instagram' in window_name.lower() and (
+                    '•' in window_name or '|' in window_name or '-' in window_name
+                ):
+                    # Common browser tab title patterns
+                    return True
+            
+            return False
+        except Exception as e:
+            return False
+    
+    def open_youtube_video(self):
+        """Open the YouTube video in a new browser tab."""
+        try:
+            webbrowser.open(self.youtube_url)
+            print(f"🎥 Opening YouTube reminder video!")
+            self.last_triggered = time.time()
+        except Exception as e:
+            print(f"Error opening YouTube: {e}")
+    
+    def run(self):
+        """Main monitoring loop."""
+        print("📷 Starting phone detection monitor...")
+        print("🔍 Monitoring for: Phone scrolling OR Instagram.com")
+        print("📺 Will open YouTube Short when distraction detected")
+        print("Press 'q' to quit")
+        
+        consecutive_detections = 0
+        required_detections = 5  # Need 5 consecutive frames to trigger
+        
+        while True:
+            ret, frame = self.cap.read()
+            if not ret:
+                break
+            
+            # Flip frame for mirror view
+            frame = cv2.flip(frame, 1)
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # Process frame for hands
+            results = self.hands.process(rgb_frame)
+            
+            phone_detected = False
+            
+            if results.multi_hand_landmarks:
+                for hand_landmarks in results.multi_hand_landmarks:
+                    if self.is_phone_scrolling_gesture(hand_landmarks, frame.shape):
+                        phone_detected = True
+                        
+                        # Draw hand landmarks for visualization
+                        mp.solutions.drawing_utils.draw_landmarks(
+                            frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS
+                        )
+            
+            # Check if Instagram is open
+            instagram_detected = self.is_instagram_open()
+            
+            # Display detection status
+            if phone_detected:
+                consecutive_detections += 1
+                cv2.putText(frame, "📱 Phone detected!", (10, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            else:
+                consecutive_detections = 0
+            
+            if instagram_detected:
+                cv2.putText(frame, "📸 Instagram.com open!", (10, 100), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+                self.instagram_open = True
+            else:
+                self.instagram_open = False
+            
+            # Trigger YouTube video if either condition is met
+            current_time = time.time()
+            should_trigger = (consecutive_detections >= required_detections) or instagram_detected
+            
+            if should_trigger and current_time - self.last_triggered > self.cooldown:
+                self.open_youtube_video()
+                consecutive_detections = 0
+            
+            # Show cooldown status
+            time_until_ready = max(0, self.cooldown - (current_time - self.last_triggered))
+            if time_until_ready > 0:
+                cv2.putText(frame, f"Cooldown: {int(time_until_ready)}s", (10, 70),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            
+            cv2.imshow('Phone Detection Monitor', frame)
+            
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        
+        self.cleanup()
+    
+    def cleanup(self):
+        """Release resources."""
+        self.cap.release()
+        cv2.destroyAllWindows()
+        self.hands.close()
+
+
+if __name__ == "__main__":
+    # YouTube Short URL to open as reminder
+    YOUTUBE_URL = "https://www.youtube.com/shorts/QJamtQk5riY"
+    
+    monitor = PhoneDetectionMonitor(
+        youtube_url=YOUTUBE_URL,
+        cooldown_seconds=30  # Wait 30 seconds between opening tabs
+    )
+    
+    monitor.run()
