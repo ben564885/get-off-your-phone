@@ -6,6 +6,7 @@ A Python-based productivity tool that helps you stay focused by detecting distra
 - **AI-Powered Phone Detection**: Uses a Roboflow AI model to specifically detect when you're holding your phone.
 - **Instagram Monitoring**: Automatically detects if you have Instagram open in Safari (macOS only).
 - **Randomized Reminders**: Opens a random video from a curated list of YouTube reminders to keep things fresh.
+- **Duplicate Prevention**: Intelligently skips opening a new video if you're already watching one in Safari.
 - **Secure Configuration**: Uses environment variables to keep your API keys private.
 
 ## Setup
