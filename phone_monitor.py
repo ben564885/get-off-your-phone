@@ -205,14 +205,14 @@ class PhoneDetectionMonitor:
             return False
     
     def open_youtube_video(self):
-        """Open a random YouTube video from the list in a new browser tab."""
+        """Open the YouTube video in a new browser tab."""
         try:
             # Check if a video is already playing
             if self.is_youtube_playing():
                 print("📺 A YouTube video is already playing. Skipping new tab.")
                 return
 
-            # Pick a random URL from the list
+            # Use the first URL if only one provided, otherwise pick random
             url = random.choice(self.youtube_urls)
             
             print(f"--- Attempting to open: {url}")
@@ -223,16 +223,14 @@ class PhoneDetectionMonitor:
             if not success:
                 subprocess.run(['open', url], check=True)
             
-            print(f"🎥 Opening random YouTube reminder video!")
+            print(f"🎥 Opening YouTube reminder video!")
             self.last_triggered = time.time()
         except Exception as e:
             print(f"Error opening YouTube: {e}")
             # Final attempt with direct open if everything else failed
             try:
-                # But don't open if already playing even in fallback
                 if self.is_youtube_playing():
                      return
-                # Still try to use a random one even in fallback
                 fallback_url = random.choice(self.youtube_urls)
                 subprocess.run(['open', fallback_url])
             except:
@@ -358,22 +356,9 @@ class PhoneDetectionMonitor:
 
 
 if __name__ == "__main__":
-    # List of YouTube video URLs to open as reminders
+    # The specific YouTube video URL to open as a reminder
     YOUTUBE_URLS = [
-        "https://www.youtube.com/watch?v=ptrbG6675JA",
-        "https://www.youtube.com/watch?v=vcjQ5JkEE_0",
-        "https://www.youtube.com/watch?v=NUMa0QkPzns",
-        "https://www.youtube.com/watch?v=g2UmYHUXC8o",
-        "https://www.youtube.com/watch?v=m0FYJ3s67hg",
-        "https://www.youtube.com/watch?v=jGhobd9nGoU",
-        "https://www.youtube.com/watch?v=szk3EOLSSag",
-        "https://www.youtube.com/watch?v=9EJdkuLkgGs",
-        "https://www.youtube.com/watch?v=9qQjaqKG0Ro",
-        "https://www.youtube.com/watch?v=XFq17N4XsZg",
-        "https://www.youtube.com/watch?v=RYKybDrj-Eg",
-        "https://www.youtube.com/watch?v=2WxV1cMTIPE",
-        "https://www.youtube.com/watch?v=YbGQv2k7J8o",
-        "https://www.youtube.com/watch?v=Itn9lI0VK0U"
+        "https://www.youtube.com/watch?v=9qQjaqKG0Ro"
     ]
     
     print("\n" + "="*40)
