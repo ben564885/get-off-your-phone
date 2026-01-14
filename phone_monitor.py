@@ -131,10 +131,53 @@ class PhoneDetectionMonitor:
         except Exception as e:
             print(f"Error checking Safari: {e}")
             return False
+            
+    def is_youtube_playing(self):
+        """
+        Check if any YouTube video is already open in Safari.
+        """
+        try:
+            applescript = '''
+            tell application "Safari"
+                if it is running then
+                    repeat with w in windows
+                        repeat with t in tabs of w
+                            try
+                                set tabURL to URL of t
+                                if tabURL contains "youtube.com/watch" then
+                                    return "FOUND"
+                                end if
+                            end try
+                        end repeat
+                    end repeat
+                end if
+            end tell
+            return "NOT_FOUND"
+            '''
+            
+            result = subprocess.run(
+                ['osascript', '-e', applescript],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            
+            if result.returncode == 0:
+                return result.stdout.strip() == "FOUND"
+            
+            return False
+            
+        except:
+            return False
     
     def open_youtube_video(self):
         """Open a random YouTube video from the list in a new browser tab."""
         try:
+            # Check if a video is already playing
+            if self.is_youtube_playing():
+                print("📺 A YouTube video is already playing. Skipping new tab.")
+                return
+
             # Pick a random URL from the list
             url = random.choice(self.youtube_urls)
             
@@ -152,6 +195,9 @@ class PhoneDetectionMonitor:
             print(f"Error opening YouTube: {e}")
             # Final attempt with direct open if everything else failed
             try:
+                # But don't open if already playing even in fallback
+                if self.is_youtube_playing():
+                     return
                 # Still try to use a random one even in fallback
                 fallback_url = random.choice(self.youtube_urls)
                 subprocess.run(['open', fallback_url])
