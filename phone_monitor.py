@@ -132,6 +132,32 @@ class PhoneDetectionMonitor:
             print(f"Error checking Safari: {e}")
             return False
             
+    def close_distraction_tabs(self):
+        """
+        Actively close any Safari tabs containing distraction sites like Instagram.
+        """
+        try:
+            applescript = '''
+            tell application "Safari"
+                if it is running then
+                    repeat with w in windows
+                        repeat with t in tabs of w
+                            try
+                                set tabURL to URL of t
+                                if tabURL contains "instagram.com" then
+                                    close t
+                                end if
+                            end try
+                        end repeat
+                    end repeat
+                end if
+            end tell
+            '''
+            subprocess.run(['osascript', '-e', applescript], timeout=5)
+            print("🛑 Closed distraction tabs in Safari!")
+        except Exception as e:
+            print(f"Error closing tabs: {e}")
+
     def is_youtube_playing(self):
         """
         Check if any YouTube video is already open in Safari.
@@ -245,6 +271,8 @@ class PhoneDetectionMonitor:
             check_counter += 1
             if check_counter % 30 == 0:
                 instagram_detected = self.is_instagram_open()
+                if instagram_detected:
+                    self.close_distraction_tabs()
                 print("-" * 40)
             
             if check_counter % 15 == 0:
